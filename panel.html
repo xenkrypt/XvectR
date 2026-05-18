@@ -28,6 +28,17 @@
                     word-wrap: break-word;
                     max-width: 90%;
                     padding: 4px 8px;
+                    background: #666666;
+                    outline: 1px solid #fe0000;
+                }
+                .user-message {
+                    align-self: flex-end;
+                    text-align: right;
+                    word-wrap: break-word;
+                    max-width: 90%;
+                    padding: 4px 8px;
+                    background: #666666;
+                    outline: 1px solid #007bff;
                 }
                 pre { background: #1e1e1e; padding: 10px; border-radius: 5px; overflow-x: auto; }
                 code { font-family: var(--vscode-editor-font-family); }
@@ -82,7 +93,7 @@
                         }
                     }else if (event.data.type === 'user') {
                         const userdiv = document.createElement('div');
-                        userdiv.className = 'message';
+                        userdiv.className = 'message user-message';
                         userdiv.innerHTML = event.data.text;
                         chatContainer.appendChild(userdiv);
                     }

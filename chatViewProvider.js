@@ -211,7 +211,7 @@ export class chatViewProvider {
 
         webviewView.webview.onDidReceiveMessage(async message => {
             if (message.type === 'chat') {
-                this.sendMessageToWebview("user","User: " + message.text);
+                this.sendMessageToWebview("user", message.text);
                 this.sendMessageToWebview("start",message.text);
                 const resT = getOllamaResponse(message.text).then(async res => {
                     if(res) {

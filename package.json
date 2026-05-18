@@ -1,0 +1,61 @@
+{
+  "name": "xvectr",
+  "displayName": "XvectR",
+  "description": "A better multipurpose coding assistant!",
+  "version": "0.0.1",
+  "type": "module",
+  "engines": {
+    "vscode": "^1.88.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "*"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "xvectr.helloWorld",
+        "title": "Hello World"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "chatContainer",
+          "title": "XvectR",
+          "icon": "XvectRimg.svg"
+        }
+      ]
+    },
+    "views": {
+      "chatContainer": [
+        {
+          "type": "webview",
+          "id": "chatView",
+          "name": "Chat!"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "pretest": "npm run lint",
+    "test": "node ./test/runTest.mjs"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "22.x",
+    "@types/vscode": "^1.120.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.39.3"
+  },
+  "dependencies": {
+    "highlight.js": "^11.11.1",
+    "markdown-it": "^14.1.1",
+    "marked": "^18.0.3"
+  }
+}

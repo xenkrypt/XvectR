@@ -10,11 +10,26 @@
 import * as vscode from 'vscode';
 import { chatViewProvider } from './chatViewProvider.js'; 
 import {spawn} from 'child_process';
+import * as net from 'net';
+
+function stollama() {
+    const socket = net.connect(11434, '127.0.0.1');
+
+    socket.on('connect', () => {
+        console.log('Ollama already running');
+        socket.end();
+    });
+
+    socket.on('error', () => {
+        console.log('Starting Ollama...');
+        spawn('ollama', ['serve']);
+    });
+}
 /**
  * @param {vscode.ExtensionContext} context
  */
 export function activate(context) {
-    spawn('ollama', ['serve']);
+    stollama();
     console.log('Congratulations, your extension "xvectr" is now active!');
     const provider = new chatViewProvider(context);
     context.subscriptions.push(

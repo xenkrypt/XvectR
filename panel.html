@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+        <html>
+        <head>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+            <style>
+                body {
+                    padding: 10px;
+                    color: var(--vscode-editor-foreground);
+                    display: flex;
+                    flex-direction: column;
+                    height: 100vh;
+                    margin: 0;
+                    box-sizing: border-box;
+                }
+                #chat {
+                    flex-grow: 1; 
+                    overflow-y: auto;
+                    margin-bottom: 10px;
+                    border: 1px solid #fe0000;
+                    display: flex;
+                    flex-direction: column; 
+                    gap: 5px;
+                }
+                .message {
+                    align-self: flex-start;
+                    text-align: left;
+                    word-wrap: break-word;
+                    max-width: 90%;
+                    padding: 4px 8px;
+                }
+                pre { background: #1e1e1e; padding: 10px; border-radius: 5px; overflow-x: auto; }
+                code { font-family: var(--vscode-editor-font-family); }
+                .input-container {
+                    display: flex;
+                    width: 100%;
+                    gap: 5px;
+                }
+                #input {
+                    flex-grow: 1; 
+                }
+            </style>
+        </head>
+        <body>
+            <h3>XvectR Chat</h3>
+            <div id="chat"></div>
+
+            <div class="input-container">
+                <input id="input" type="text" placeholder="Type a message..." />
+                <button onclick="send()">Send</button>
+            </div>
+
+            <script>
+                const vscode = acquireVsCodeApi();
+
+                document.getElementById('input').addEventListener('keypress', function (e) {
+                    if (e.key === 'Enter') {
+                        send();
+                    }
+                });
+
+                function send() {
+                    const input = document.getElementById('input');
+                    const text = input.value;
+                    if (!text) return;
+                    input.value = '';
+                    vscode.postMessage({ type: 'chat', text: text });
+                }
+                let div = null;
+                window.addEventListener('message', event => {
+                    const chatContainer = document.getElementById('chat');
+
+                    if (event.data.type === 'start') {  
+                        div = document.createElement('div');
+                        div.className = 'message';
+                        // div.innerHTML = event.data.text;
+                        chatContainer.appendChild(div);
+
+                    } else if (event.data.type === 'chunk') {
+                     if(chatContainer) {
+                        div.innerHTML += event.data.text;
+                        }
+                    }else if (event.data.type === 'user') {
+                        const userdiv = document.createElement('div');
+                        userdiv.className = 'message';
+                        userdiv.innerHTML = event.data.text;
+                        chatContainer.appendChild(userdiv);
+                    }
+
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                });
+            </script>
+        </body>
+        </html>

@@ -181,6 +181,8 @@
 //     }
 // }
 import {getOllamaResponse} from './ollama1.js';
+import fs from "fs";
+import path from "path";
 
 
 
@@ -207,113 +209,35 @@ export class chatViewProvider {
 
         webviewView.webview.html = this.getHtml();
 
-        webviewView.webview.onDidReceiveMessage(message => {
+        webviewView.webview.onDidReceiveMessage(async message => {
             if (message.type === 'chat') {
-                this.sendMessageToWebview("User: " + message.text);
-                const resT = getOllamaResponse(message.text).then(res => {
+                this.sendMessageToWebview("user","User: " + message.text);
+                this.sendMessageToWebview("start",message.text);
+                const resT = getOllamaResponse(message.text).then(async res => {
                     if(res) {
-                        this.sendMessageToWebview(res);
+                        for await(const i of res) {
+                            this.sendMessageToWebview("chunk",i.message.content.replace(/\n/g, ''));
+                            this.sendMessageToWebview("chunk", "\n");
+                        // this.sendMessageToWebview(res);
                     }
-                });
-
+            }});
             }
         });
     }
 
-    sendMessageToWebview(text) {
+    sendMessageToWebview(type,text) {
         if (this.view) {
-            this.view.webview.postMessage({ type: 'response', text });
+            this.view.webview.postMessage({ type: type, text: text });
         }
     }
 
     getHtml() {
-        return `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
-            <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-            <style>
-                body {
-                    padding: 10px;
-                    color: var(--vscode-editor-foreground);
-                    display: flex;
-                    flex-direction: column;
-                    height: 100vh;
-                    margin: 0;
-                    box-sizing: border-box;
-                }
-                #chat {
-                    flex-grow: 1; 
-                    overflow-y: auto;
-                    margin-bottom: 10px;
-                    border: 1px solid #fe0000;
-                    display: flex;
-                    flex-direction: column; 
-                    gap: 5px;
-                }
-                .message {
-                    align-self: flex-start;
-                    text-align: left;
-                    word-wrap: break-word;
-                    max-width: 90%;
-                    padding: 4px 8px;
-                }
-                pre { background: #1e1e1e; padding: 10px; border-radius: 5px; overflow-x: auto; }
-                code { font-family: var(--vscode-editor-font-family); }
-                .input-container {
-                    display: flex;
-                    width: 100%;
-                    gap: 5px;
-                }
-                #input {
-                    flex-grow: 1; 
-                }
-            </style>
-        </head>
-        <body>
-            <h3>XvectR Chat</h3>
-            <div id="chat"></div>
+        const htmlPath = path.join(
+        this.context.extensionPath,
+        'panel.html'
+        );
 
-            <div class="input-container">
-                <input id="input" type="text" placeholder="Type a message..." />
-                <button onclick="send()">Send</button>
-            </div>
-
-            <script>
-                const vscode = acquireVsCodeApi();
-
-                document.getElementById('input').addEventListener('keypress', function (e) {
-                    if (e.key === 'Enter') {
-                        send();
-                    }
-                });
-
-                function send() {
-                    const input = document.getElementById('input');
-                    const text = input.value;
-                    if (!text) return;
-                    input.value = '';
-                    vscode.postMessage({ type: 'chat', text: text });
-                }
-
-                window.addEventListener('message', event => {
-                    const chatContainer = document.getElementById('chat');
-                    const div = document.createElement('div');
-                    div.className = 'message';
-                    div.innerHTML = event.data.text;
-                    
-                    chatContainer.appendChild(div);
-
-                    div.querySelectorAll('pre code').forEach((block) => {
-                        hljs.highlightElement(block);
-                    });
-                    
-                    chatContainer.scrollTop = chatContainer.scrollHeight;
-                });
-            </script>
-        </body>
-        </html>`;
+        return fs.readFileSync(htmlPath, 'utf8');
     }
 }
 

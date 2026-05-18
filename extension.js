@@ -14,7 +14,7 @@ import {spawn} from 'child_process';
  * @param {vscode.ExtensionContext} context
  */
 export function activate(context) {
-    spawn('ollama',['serve']);
+    spawn('ollama', ['serve']);
     console.log('Congratulations, your extension "xvectr" is now active!');
     const provider = new chatViewProvider(context);
     context.subscriptions.push(
@@ -27,4 +27,5 @@ export function activate(context) {
     context.subscriptions.push(disposable);
 }
 
-export function deactivate() { }
+export function deactivate() { 
+}

@@ -8,35 +8,17 @@ const md = new MarkdownIt({
 });
 
 md.options.highlight = (code, lang) => {
-
     if (lang && hljs.getLanguage(lang)) {
-
         try {
-
             const highlighted = hljs.highlight(code, {
                 language: lang
             }).value;
-
-            return `
-<pre class="hljs">
-<code class="language-${lang}">
-${highlighted}
-</code>
-</pre>
-            `;
-
+            return `<pre class="hljs"><code class="language-${lang}">${highlighted}</code></pre>`;
         } catch (err) {
             console.error(err);
         }
     }
-
-    return `
-<pre class="hljs">
-<code>
-${md.utils.escapeHtml(code)}
-</code>
-</pre>
-    `;
+    return `<pre class="hljs"><code>${md.utils.escapeHtml(code)}</code></pre>`;
 };
 
 export default md;

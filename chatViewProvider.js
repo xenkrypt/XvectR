@@ -44,11 +44,14 @@ export class chatViewProvider {
                         // this.sendMessageToWebview("chunk", "\n");
                         // this.sendMessageToWebview(res);
                         }
+                        
+                    this.sendMessageToWebview('done', '');
 
                 }
                 catch(err) {
                     console.error(err);
                     this.sendMessageToWebview("error", "Error: " + err.message);
+                    this.sendMessageToWebview('done', '');
 
                     }
                 }

@@ -78,23 +78,30 @@
 
             <div class="input-container">
                 <input id="input" type="text" placeholder="Type a message..." />
-                <button onclick="send()">Send</button>
+                <button id="sendBtn" onclick="send()">Send</button>
             </div>
 
             <script>
                 const vscode = acquireVsCodeApi();
-
+                const input = document.getElementById('input');
+                const sendBtn = document.getElementById('sendBtn'); 
                 document.getElementById('input').addEventListener('keypress', function (e) {
                     if (e.key === 'Enter') {
                         send();
                     }
                 });
+                function setGeneratingState(isGenerating) {
+                    // input.disabled = isGenerating;
+                    sendBtn.disabled = isGenerating;
+                    sendBtn.textContent = isGenerating ? 'Generating...' : 'Send';
+                }
 
                 function send() {
-                    const input = document.getElementById('input');
+                    // const input = document.getElementById('chat');
                     const text = input.value;
                     if (!text) return;
                     input.value = '';
+                    setGeneratingState(true);
                     vscode.postMessage({ type: 'chat', text: text });
                 }
                 let div = null;
@@ -111,6 +118,9 @@
                         if (div) {
                             div.innerHTML = event.data.text;
                         }
+                    } else if (event.data.type === 'done') {
+                        setGeneratingState(false);
+
                     } else if (event.data.type === 'user') {
                         const userdiv = document.createElement('div');
                         userdiv.className = 'message user-message';

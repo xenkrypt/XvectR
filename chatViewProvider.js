@@ -4,7 +4,6 @@ import path from "path";
 import md from "./markdown.js";
 
 
-
 export class chatViewProvider {
     /**
      * @param {import('vscode').ExtensionContext} context
@@ -46,6 +45,7 @@ export class chatViewProvider {
                         }
                         
                     this.sendMessageToWebview('done', '');
+                    fs.writeFileSync('./memo.txt', message.text + "\n" + fr);
 
                 }
                 catch(err) {

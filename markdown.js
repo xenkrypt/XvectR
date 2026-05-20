@@ -4,8 +4,12 @@ import hljs from 'highlight.js';
 const md = new MarkdownIt({
     html: false,
     linkify: true,
-    breaks: true
+    breaks: true,
+    multiline: true,
+    rowspan: true,
+    headerless: true,
 });
+
 
 md.options.highlight = (code, lang) => {
     if (lang && hljs.getLanguage(lang)) {

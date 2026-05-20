@@ -12,24 +12,51 @@ import { chatViewProvider } from './chatViewProvider.js';
 import {spawn} from 'child_process';
 import * as net from 'net';
 
-function stollama() {
-    const socket = net.connect(11434, '127.0.0.1');
 
-    socket.on('connect', () => {
-        console.log('Ollama already running');
-        socket.end();
-    });
-
-    socket.on('error', () => {
-        console.log('Starting Ollama...');
-        spawn('ollama', ['serve']);
+let ollamaProcess = null;
+let startingOllama = false;
+function isOllamaRunning() {
+    return new Promise((resolve) => {
+        const socket = net.connect(11434, '127.0.0.1');
+        socket.once('connect', () => {
+            socket.end();
+            resolve(true);
+        });
+        socket.once('error', () => {
+            resolve(false);
+        });
     });
 }
+async function stollama() {
+    if (startingOllama) {
+        return;
+    }
+    const running = await isOllamaRunning();
+    if (running) {
+        console.log('Ollama already running');
+        return;
+    }
+    startingOllama = true;
+    console.log('Starting Ollama...');
+    ollamaProcess = spawn('ollama', ['serve'], {
+        detached: true,
+        stdio: 'ignore'
+    });
+    ollamaProcess.unref();
+    ollamaProcess.on('exit', () => {
+        ollamaProcess = null;
+        startingOllama = false;
+    });
+    setTimeout(() => {
+        startingOllama = false;
+    }, 3000);
+}
+
 /**
  * @param {vscode.ExtensionContext} context
  */
-export function activate(context) {
-    stollama();
+export async function activate(context) {
+    await stollama();
     console.log('Congratulations, your extension "xvectr" is now active!');
     const provider = new chatViewProvider(context);
     context.subscriptions.push(
@@ -43,4 +70,5 @@ export function activate(context) {
 }
 
 export function deactivate() { 
+
 }

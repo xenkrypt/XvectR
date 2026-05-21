@@ -3,7 +3,19 @@ import ollama from 'ollama';
 // import {getdateTime} from './intents/date_time.js';
 import fs from 'fs';
 import path from 'path';
-import * as vscode from 'vscode';
+// import * as vscode from 'vscode';
+import { fileURLToPath } from 'url';
+import { readFilesTool } from './tools/read_files.js';
+import { fileTreeTool } from './tools/file_tree.js';
+import { modifyFileTool } from './tools/modify_file.js';
+
+
+import crypto from 'crypto';
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+
+
 
 // export async function getOllamaResponse(ollamares) {
 //     const res = await ollama.chat({
@@ -20,54 +32,125 @@ import * as vscode from 'vscode';
 // }   
 
 
-const sysprompt = `You are an expert coding assistant.
-                    You are a coding assistant for VS Code. 
-                    Use tools whenever the user asks about files, code, debugging, or project structure. 
-                    Always read files before answering file-related questions. 
-                    When mentioning code, include the filename. 
-                    Keep responses short, direct, and technical.`;
+const sysprompt = `You are XvectR, an autonomous software engineering assistant.
 
-function findFile(workspaceF, filename) {
-    const files = fs.readdirSync(workspaceF, { recursive: true });
-    let match = files.find(file =>
-        path.basename(file) === filename
-    );
-    if (!match) {
-        match = files.find(file =>
-            path.parse(file).name === filename
-        );
-    }
-    return match ? path.join(workspaceF, match) : null;
-}
+You operate as a real codebase investigation agent.
 
-function readFileTool(args) {
+You have access to tools.
+
+AVAILABLE TOOLS:
+
+1. file_tree
+
+* Inspect the project structure.
+
+2. read_files
+
+* Read one or multiple files from the workspace.
+
+3. modify_file
+
+* Modify or write the content of a file in the workspace.
+
+TOOL USAGE RULES:
+
+1. NEVER invent file contents.
+
+2. NEVER hallucinate APIs, functions, variables, classes, imports, or project structure.
+
+3. If the user asks about:
+
+* code
+* files
+* bugs
+* functions
+* architecture
+* imports
+* errors
+* dependencies
+* execution flow
+* project structure
+
+you MUST inspect relevant files using tools BEFORE answering.
+
+4. Use file_tree first when:
+
+* project structure is unknown
+* file locations are unclear
+* architecture understanding is needed
+
+5. Use read_files when:
+
+* analyzing implementation
+* debugging
+* understanding logic
+* comparing files
+* tracing imports
+* inspecting functions/classes
+
+6. You may call tools MULTIPLE TIMES before answering.
+
+7. After reading files:
+
+* reason carefully
+* explain technically
+* stay concise
+* reference actual observed code
+
+8. Prefer exploration over assumptions.
+
+9. If information is missing:
+
+* continue using tools
+* or explicitly state what is missing
+
+10. NEVER simulate tool execution.
+
+11. NEVER describe how you WOULD use a tool.
+
+12. NEVER write fake example code for tool usage.
+
+13. NEVER output markdown code blocks containing fake tool calls.
+
+14. When using tools, rely on the native tool calling capability provided by the API.
+Your goal is to behave like a real autonomous software engineer investigating a live codebase.
+
+`;
+
+function loadmem() {
     try {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!workspaceFolder) {
-            throw new Error('No workspace open');
+        const memPath = path.join(__dirname, 'mem.json');
+        if (!fs.existsSync(memPath)) {
+            fs.writeFileSync(memPath, '[]', 'utf-8');
+            return [];
         }
-        const resolvedPath = findFile(workspaceFolder, args.path);
-        if (!resolvedPath) {
-            throw new Error(`File not found: ${args.path}`);
+        const memData = fs.readFileSync(memPath, 'utf-8');
+        if (!memData.trim()) {
+            return [];
         }
+        return JSON.parse(memData);
+    } catch(err) {
+        console.error('Error loading memory:', err);
+        const memPath = path.join(__dirname, 'mem.json');
+            fs.writeFileSync(
+                memPath,
+                '[]',
+                'utf-8'
+            );
+            return [];
+    }}
 
-        const fullPath = resolvedPath;
-        if (!fullPath.startsWith(workspaceFolder)) {
-            throw new Error('Access denied');
-        }
-        console.log('READING FILE:', fullPath);
-        const content =fs.readFileSync(fullPath, 'utf-8');
-
-        return {
-            success: true,
-            content
-        };
-    } catch (err) {
-        console.error('READ FILE ERROR:', err);
-        return {
-            success: false,
-            error: err.message
-        };
+function savemem(mem) {
+    try {
+        const memPath = path.join(__dirname, 'mem.json');
+        fs.writeFileSync(
+            memPath,
+            JSON.stringify(mem, null, 2),
+            'utf-8'
+        );
+        console.log('Memory saved:', memPath);
+    } catch(err) {
+        console.error('Error saving memory:', err);
     }
 }
 
@@ -77,96 +160,175 @@ export async function getOllamaResponse(ollamares) {
     // const intent = await intentrec(ollamares);
     // console.log('intent:', intent);
     // const dat = fs.readFileSync('./memo.txt', 'utf-8');
+    
+    let mem = loadmem();
+    mem.push({role: 'user', content: ollamares});
     const messg = [
-            {
-                role: 'system',
-                content: sysprompt
-            },
-            {
-                role: 'user',
-                content: ollamares
-            }
-        ]
-
-    // const messg = [{}]
-    const c1 = await ollama.chat({
-    model: 'qwen2.5-coder:latest',
-    messages: messg,
-    tools: [{
-            type: 'function',
-            function: {
-                name: 'read_file',
-                description: 'Read a file from disk',
-                parameters: {
-                    type: 'object',
-                    properties: {
-                        path: {
-                            type: 'string',
-                            description: 'Path to file'
+        {
+            role: 'system',
+            content: sysprompt
+        },...mem
+    ]
+    const tools = [
+                {
+                    type: 'function',
+                    function: {
+                        name: 'read_files',
+                        description:
+                            'Read one or multiple files from the workspace.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                paths: {
+                                    type: 'array',
+                                    items: {
+                                        type: 'string'
+                                    },
+                                    description:
+                                        'List of file paths to read, relative to the workspace root.'
+                                }
+                            },
+                            required: ['paths']
                         }
-                    },
-                    required: ['path']
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'file_tree',
+                        description: "Get the project's file tree.",
+                        parameters: {
+                            type: 'object',
+                            properties: {}
+                        }
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'modify_file',
+                        description: 'Modify or write the content of a file in the workspace.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                path: {
+                                    type: 'string',
+                                    description: 'The file path relative to the workspace root.'
+                                },
+                                content: {
+                                    type: 'string',
+                                    description: 'The complete new content to write to the file.'
+                                }
+                            },
+                            required: ['path', 'content']
+                        }
                     }
                 }
+            ];
+        let tooliter = 0;
+
+        
+        while (true) {
+            tooliter++;
+            if(tooliter > 10){
+                throw new Error('Too many tool iterations, possible infinite loop');
+
             }
-        ],
-            stream: false
-        });
+            const resp = await ollama.chat({
+                model: 'llama3.2:latest',
+                messages: messg,
+                tools,
+                stream: false
+            });
+            console.log('model response: ', JSON.stringify(resp,null,2));
+            // const toolcalls = resp.message.tool_calls || [];
+            let toolcalls = resp.message.tool_calls || [];
+            console.log(
+                'RAW TOOL CALLS:',
+                JSON.stringify(
+                    resp.message.tool_calls,
+                    null,
+                    2
+                )
+            );
 
-    console.log('FIRST RESPONSE:\n', JSON.stringify(c1, null, 2));    
-    // let toolCalls = c1.message.tool_calls;
-    let toolCalls = c1.message.tool_calls || [];
-    if (toolCalls.length === 0 && c1.message.content) {
-        try {
-            const parsed = JSON.parse(c1.message.content);
+            console.log(
+                'RAW CONTENT:',
+                resp.message.content
+            );
 
-            if (parsed.name && parsed.arguments) {
-                toolCalls = [{
-                    function: {
-                        name: parsed.name,
-                        arguments: parsed.arguments
+            if (toolcalls.length === 0) {
+                const streamres = await ollama.chat({
+                    model: 'llama3.2:latest',
+                    messages: messg,
+                    stream: true
+                });
+                let finalres = '';
+                async function* gen(){
+                    for await (const part of streamres) {
+                        const cont = part.message?.content || '';
+                        finalres += cont;
+                        yield {
+                            message: {
+                                content: cont
+                            }
+                        };
                     }
-                }];
+                    mem.push({role: 'assistant', content: finalres});
+                    if(mem.length > 20){
+                        mem = mem.slice(-20);
+                    }
+                    savemem(mem);
+                }
+                return gen();
             }
-        } catch (err) {}
-    }
-    
-    console.log('TOOL CALLS:\n', JSON.stringify(toolCalls, null, 2));
-    if (toolCalls.length === 0) {
-        return await ollama.chat({
-            model: 'qwen2.5-coder:latest',
-            messages: messg,
-            stream: true
-        });
-    }
-    if (toolCalls && toolCalls.length > 0) {
-        messg.push(c1.message);
-        for (const call of toolCalls) {
-            if (call.function.name === 'read_file') {
-                
-// console.log('EXECUTING TOOL:', call.function.name);
-// console.log('ARGS:', call.function.arguments);
-                const args =
-                    typeof call.function.arguments === 'string'
-                        ? JSON.parse(call.function.arguments)
-                        : call.function.arguments;
-                const toolresult = readFileTool(args);
-                // const toolresult = readFileTool(call.function.arguments);
-                messg.push({
+            messg.push(resp.message);
+            mem.push(resp.message);
+            for (const call of toolcalls) {
+                let args = typeof call.function.arguments === 'string' ? JSON.parse(call.function.arguments) : call.function.arguments;
+                if (args && typeof args.paths === 'string') {
+                    try {
+                        args.paths = JSON.parse(args.paths);
+                    } catch(e) {}
+                }
+                let toolres;
+                if (call.function.name === 'read_files') {
+                    if (!args || !Array.isArray(args.paths)) {
+                        toolres = { success: false, error: 'Invalid arguments. "paths" must be an array of file path strings. Example: {"paths": ["app.js"]}' };
+                    } else {
+                        toolres = readFilesTool(args);
+                    }
+                }
+                else if (call.function.name === 'file_tree') {
+                    toolres = fileTreeTool();
+                }
+                else if (call.function.name === 'modify_file') {
+                    if (!args || !args.path) {
+                        toolres = { success: false, error: 'Invalid arguments. "path" must be specified.' };
+                    } else {
+                        toolres = modifyFileTool(args);
+                    }
+                }
+                else{
+                    toolres = {
+                        success: false,
+                        error: 'Unknown tool'
+                    };
+                }
+                const toolMsg = {
                     role: 'tool',
                     name: call.function.name,
-                    content: JSON.stringify(toolresult)
-                });
+                    tool_call_id: call.id || crypto.randomUUID(),
+                    content: JSON.stringify(toolres)
+                };
+                messg.push(toolMsg);
+                mem.push(toolMsg);
             }
         }
-    }
     
-    const res = await ollama.chat({
-        model: 'qwen2.5-coder:latest',
-        messages: messg,
-        stream: true
-    });
-// console.log('FINAL MESSAGE STACK:\n',JSON.stringify(messg, null, 2)
 
-    return res;
+
+    
+    // const messg = [{}]
+    
 }   

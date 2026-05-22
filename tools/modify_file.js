@@ -21,8 +21,10 @@ export function modifyFileTool(args) {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
+
         const content = args.content || '';
         fs.writeFileSync(resolvedPath, content, 'utf-8');
+
         return {
             success: true,
             message: `Successfully wrote to ${requestedPath}`

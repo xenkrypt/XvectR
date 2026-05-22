@@ -9,7 +9,7 @@ import { readFilesTool } from './tools/read_files.js';
 import { fileTreeTool } from './tools/file_tree.js';
 import { modifyFileTool } from './tools/modify_file.js';
 
-
+import zlib from 'zlib';
 import crypto from 'crypto';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -114,6 +114,15 @@ you MUST inspect relevant files using tools BEFORE answering.
 
 14. When using tools, rely on the native tool calling capability provided by the API.
 Your goal is to behave like a real autonomous software engineer investigating a live codebase.
+15. Never respond in JSON format to the user.
+16. Only output natural language unless making a tool call.
+17. After tool execution, summarize results conversationally.
+18. Tool arguments MUST always be valid JSON.
+19. Arrays must not be stringified.
+20. Correct example:
+{"paths":["file.py"]}
+21. Incorrect example:
+{"paths":"[file.py]"}
 
 `;
 
@@ -161,21 +170,33 @@ export async function getOllamaResponse(ollamares) {
     // console.log('intent:', intent);
     // const dat = fs.readFileSync('./memo.txt', 'utf-8');
     
-    let mem = loadmem();
-    mem.push({role: 'user', content: ollamares});
+    // let mem = loadmem();
+    const mem = loadmem();
     const messg = [
         {
             role: 'system',
             content: sysprompt
-        },...mem
-    ]
+        },
+        ...mem,
+        {
+            role: 'user',
+            content: ollamares
+        }
+    ];
+    // mem.push({role: 'user', content: ollamares});
+    // const messg = [
+    //     {
+    //         role: 'system',
+    //         content: sysprompt
+    //     },...mem
+    // ]
     const tools = [
                 {
                     type: 'function',
                     function: {
                         name: 'read_files',
                         description:
-                            'Read one or multiple files from the workspace.',
+                            'Read one or multiple files from the workspace. Example arguments: {"paths":["app.js","index.js"]}',
                         parameters: {
                             type: 'object',
                             properties: {
@@ -235,7 +256,7 @@ export async function getOllamaResponse(ollamares) {
 
             }
             const resp = await ollama.chat({
-                model: 'llama3.2:latest',
+                model: 'qwen3.5:0.8b',
                 messages: messg,
                 tools,
                 stream: false
@@ -251,32 +272,31 @@ export async function getOllamaResponse(ollamares) {
                     2
                 )
             );
-
             console.log(
                 'RAW CONTENT:',
                 resp.message.content
             );
-
             if (toolcalls.length === 0) {
-                const streamres = await ollama.chat({
-                    model: 'llama3.2:latest',
+                const finalRespStream = await ollama.chat({
+                    model: 'qwen3.5:9b',
                     messages: messg,
                     stream: true
                 });
-                let finalres = '';
-                async function* gen(){
-                    for await (const part of streamres) {
-                        const cont = part.message?.content || '';
-                        finalres += cont;
+                async function* gen() {
+                    let accumulatedContent = '';
+                    for await (const chunk of finalRespStream) {
+                        const contentChunk = chunk.message.content || '';
+                        accumulatedContent += contentChunk;
                         yield {
                             message: {
-                                content: cont
+                                content: contentChunk
                             }
                         };
                     }
-                    mem.push({role: 'assistant', content: finalres});
-                    if(mem.length > 20){
-                        mem = mem.slice(-20);
+                    mem.push({role: 'user', content: ollamares});
+                    mem.push({role: 'assistant',content: accumulatedContent});
+                    if (mem.length > 20) {
+                        mem.splice(0, mem.length - 20);
                     }
                     savemem(mem);
                 }
@@ -285,11 +305,16 @@ export async function getOllamaResponse(ollamares) {
             messg.push(resp.message);
             mem.push(resp.message);
             for (const call of toolcalls) {
-                let args = typeof call.function.arguments === 'string' ? JSON.parse(call.function.arguments) : call.function.arguments;
-                if (args && typeof args.paths === 'string') {
-                    try {
-                        args.paths = JSON.parse(args.paths);
-                    } catch(e) {}
+                let args = call.function.arguments || {};
+                try {
+                    args =
+                        typeof call.function.arguments === 'string'
+                            ? JSON.parse(call.function.arguments)
+                            : call.function.arguments || {};
+                } catch (err) {
+                    console.error('Invalid tool arguments:', err);
+
+                    args = {};
                 }
                 let toolres;
                 if (call.function.name === 'read_files') {
@@ -318,16 +343,13 @@ export async function getOllamaResponse(ollamares) {
                 const toolMsg = {
                     role: 'tool',
                     name: call.function.name,
-                    tool_call_id: call.id || crypto.randomUUID(),
+                    // tool_call_id: call.id || crypto.randomUUID(),
                     content: JSON.stringify(toolres)
                 };
                 messg.push(toolMsg);
-                mem.push(toolMsg);
+                // mem.push(toolMsg);
             }
         }
-    
-
-
     
     // const messg = [{}]
     

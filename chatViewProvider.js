@@ -37,8 +37,8 @@ export class chatViewProvider {
                     let fr = "";
                     for await(const i of resT) {
                         fr+=i.message.content;
-                        const formatted = md.render(fr);
-                        this.sendMessageToWebview('render', formatted);
+                        // const formatted = md.render(fr);
+                        this.sendMessageToWebview('render', i.message.content);
                         // this.sendMessageToWebview("chunk",i.message.content.replace(/\n/g, ''));
                         // this.sendMessageToWebview("chunk", "\n");
                         // this.sendMessageToWebview(res);

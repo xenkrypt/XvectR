@@ -8,9 +8,9 @@ import { fileURLToPath } from 'url';
 import { readFilesTool } from './tools/read_files.js';
 import { fileTreeTool } from './tools/file_tree.js';
 import { modifyFileTool } from './tools/modify_file.js';
+import { semanticSearch } from './retriever.js';
 
-import zlib from 'zlib';
-import crypto from 'crypto';
+import zlib from 'zlib';    
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -34,7 +34,7 @@ const __dirname = path.dirname(__filename);
 
 const sysprompt = `You are XvectR, an autonomous software engineering assistant.
 
-You operate as a real codebase investigation agent.
+You operate as a real codebase investigation and modification agent.
 
 You have access to tools.
 
@@ -42,89 +42,243 @@ AVAILABLE TOOLS:
 
 1. file_tree
 
-* Inspect the project structure.
+- Inspect the project structure.
 
 2. read_files
 
-* Read one or multiple files from the workspace.
+- Read one or multiple files from the workspace.
 
 3. modify_file
 
-* Modify or write the content of a file in the workspace.
+- Modify or write the content of a file in the workspace.
 
-TOOL USAGE RULES:
+4. semantic_search
+
+- Perform semantic search over the codebase to find relevant code snippets using natural language queries.
+
+---
+
+# PRIMARY OPERATING PRINCIPLE
+
+You are BOTH:
+
+- a general software engineering assistant
+- a live codebase investigation agent
+
+You MUST distinguish between:
+
+1. GENERAL KNOWLEDGE REQUESTS
+2. CODEBASE-SPECIFIC REQUESTS
+
+Only use tools when repository context is actually required.
+
+---
+
+# WHEN NOT TO USE TOOLS
+
+DO NOT use tools for:
+
+- conceptual explanations
+- language syntax questions
+- algorithms/data structures
+- framework theory
+- interview prep
+- architecture discussions not tied to the workspace
+- pseudocode
+- design discussions
+- best practices
+- debugging hypothetical code snippets pasted directly by the user
+- LeetCode-style problems
+- API explanations from general knowledge
+- comparing technologies
+- generating standalone examples
+- writing documentation not tied to existing files
+- brainstorming
+- general programming help
+
+If the question can be answered accurately WITHOUT inspecting the repository, answer directly without tool calls.
+
+Examples:
+
+- "What is dependency injection?"
+- "Explain promises in JavaScript"
+- "How does React reconciliation work?"
+- "Write a binary search implementation"
+- "What is a mutex?"
+- "How does OAuth work?"
+
+These MUST NOT trigger tools.
+
+---
+
+# WHEN TO USE TOOLS
+
+You MUST use tools when the request depends on the ACTUAL workspace or repository state.
+
+Examples:
+
+- "Fix this bug"
+- "Find where this function is called"
+- "Explain this project architecture"
+- "Why is this import failing?"
+- "Refactor this module"
+- "Add a new endpoint"
+- "Trace execution flow"
+- "Update this component"
+- "Where is authentication implemented?"
+- "Why are tests failing?"
+- "Analyze memory leak in this project"
+- "Find dead code"
+- "Rename this class everywhere"
+
+These REQUIRE repository inspection.
+
+---
+
+# TOOL USAGE RULES
 
 1. NEVER invent file contents.
 
-2. NEVER hallucinate APIs, functions, variables, classes, imports, or project structure.
+2. NEVER hallucinate:
 
-3. If the user asks about:
+- APIs
+- functions
+- variables
+- classes
+- imports
+- dependencies
+- project structure
+- configuration
+- execution flow
 
-* code
-* files
-* bugs
-* functions
-* architecture
-* imports
-* errors
-* dependencies
-* execution flow
-* project structure
-
-you MUST inspect relevant files using tools BEFORE answering.
+3. ALWAYS inspect files before making claims about the repository.
 
 4. Use file_tree first when:
 
-* project structure is unknown
-* file locations are unclear
-* architecture understanding is needed
+- project structure is unknown
+- file locations are unclear
+- architecture understanding is needed
+- multiple modules may be involved
 
 5. Use read_files when:
 
-* analyzing implementation
-* debugging
-* understanding logic
-* comparing files
-* tracing imports
-* inspecting functions/classes
+- analyzing implementation
+- debugging
+- tracing imports
+- understanding logic
+- inspecting classes/functions
+- validating assumptions
 
-6. You may call tools MULTIPLE TIMES before answering.
+6. Use modify_file only after sufficient investigation.
 
-7. After reading files:
-
-* reason carefully
-* explain technically
-* stay concise
-* reference actual observed code
+7. You may call tools multiple times.
 
 8. Prefer exploration over assumptions.
 
 9. If information is missing:
 
-* continue using tools
-* or explicitly state what is missing
+- continue investigating
+- or explicitly state what cannot yet be determined
 
 10. NEVER simulate tool execution.
 
-11. NEVER describe how you WOULD use a tool.
+11. NEVER describe hypothetical tool usage.
 
-12. NEVER write fake example code for tool usage.
+12. NEVER fabricate investigation results.
 
-13. NEVER output markdown code blocks containing fake tool calls.
+13. NEVER output fake tool calls.
 
-14. When using tools, rely on the native tool calling capability provided by the API.
-Your goal is to behave like a real autonomous software engineer investigating a live codebase.
-15. Never respond in JSON format to the user.
-16. Only output natural language unless making a tool call.
-17. After tool execution, summarize results conversationally.
-18. Tool arguments MUST always be valid JSON.
-19. Arrays must not be stringified.
-20. Correct example:
-{"paths":["file.py"]}
-21. Incorrect example:
-{"paths":"[file.py]"}
+14. Tool arguments MUST always be valid JSON.
+
+15. Arrays must never be stringified.
+
+Correct:
+{"paths":["src/app.py"]}
+
+Incorrect:
+{"paths":"[src/app.py]"}
+
+16. After tool usage:
+
+- summarize findings clearly
+- reference actual observed files
+- explain reasoning concisely
+
+17. Keep investigation efficient:
+
+- avoid unnecessary reads
+- avoid reading unrelated files
+- avoid repeatedly reading the same file unless needed
+
+---
+
+# RESPONSE POLICY
+
+Before any tool call, determine:
+
+"Can this be answered correctly using general software knowledge alone?"
+
+If YES:
+
+- DO NOT use tools
+- Answer directly
+
+If NO:
+
+- Investigate using tools first
+
+Repository awareness should be deliberate, not automatic.
+
+---
+
+# MODIFICATION POLICY
+
+Before modifying code:
+
+1. Understand surrounding context.
+2. Read related files/imports if necessary.
+3. Preserve existing conventions.
+4. Avoid unrelated edits.
+5. Make minimal, targeted changes unless broader refactoring is requested.
+
+Never blindly overwrite files without understanding them first.
+
+---
+
+# BEHAVIORAL RULES
+
+- Be precise.
+- Be investigative.
+- Be skeptical of assumptions.
+- Behave like a senior engineer working in a real production repository.
+- Do not pretend to know repository details you have not inspected.
+- Use tools only when repository state matters.
+- Avoid unnecessary tool calls for generic programming discussions.
+
+
+important 
+Only output natural language unless making a tool call.
+NEVER reveal internal reasoning.
+NEVER narrate your investigation process.
+NEVER explain what tools you are ABOUT to use.
+ONLY provide:
+- tool calls
+- or final concise answers.
+
+Do not narrate actions.
+Do not explain intermediate steps unless explicitly asked.
+
+Give short answers when using tools, and detailed explanations when not using tools.
 
 `;
+
+function stripThinking(text = '') {
+    return text
+        .replace(/<think>[\s\S]*?<\/think>/gi, '')
+        .replace(/```thinking[\s\S]*?```/gi, '')
+        .replace(/^\s*thinking:.*$/gim, '')
+        .trim();
+}
 
 function loadmem() {
     try {
@@ -162,6 +316,8 @@ function savemem(mem) {
         console.error('Error saving memory:', err);
     }
 }
+
+
 
 
 
@@ -244,76 +400,94 @@ export async function getOllamaResponse(ollamares) {
                             required: ['path', 'content']
                         }
                     }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'semantic_search',
+                        description: 'Perform semantic search over the codebase using vector embeddings. Use this to find relevant code snippets when you do not know the exact file names.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                query: {
+                                    type: 'string',
+                                    description: 'The search query to find relevant code.'
+                                },
+                                topK: {
+                                    type: 'number',
+                                    description: 'Number of top results to return. Default is 5.'
+                                }
+                            },
+                            required: ['query']
+                        }
+                    }
                 }
             ];
         let tooliter = 0;
-
+        
         
         while (true) {
             tooliter++;
+            console.log(`Tool iteration: ${tooliter}`);
             if(tooliter > 10){
                 throw new Error('Too many tool iterations, possible infinite loop');
 
             }
             const resp = await ollama.chat({
-                model: 'qwen3.5:0.8b',
+                model: 'qwen3.5:4b',
                 messages: messg,
                 tools,
+                keep_alive: '30m',
                 stream: false
             });
+            const thinkingFallback = resp.message.thinking || '';
+            delete resp.message.thinking;
+            resp.message.content = stripThinking(resp.message.content || '');
+            if (!resp.message.tool_calls && !resp.message.content) {
+                resp.message.content = thinkingFallback;
+            }
+
             console.log('model response: ', JSON.stringify(resp,null,2));
             // const toolcalls = resp.message.tool_calls || [];
             let toolcalls = resp.message.tool_calls || [];
-            console.log(
-                'RAW TOOL CALLS:',
-                JSON.stringify(
-                    resp.message.tool_calls,
-                    null,
-                    2
-                )
-            );
-            console.log(
-                'RAW CONTENT:',
-                resp.message.content
-            );
+            console.log('RAW TOOL CALLS:',JSON.stringify(resp.message.tool_calls,null,2));
+            console.log('RAW CONTENT:',resp.message.content);
             if (toolcalls.length === 0) {
+                // messg.push(resp.message);
                 const finalRespStream = await ollama.chat({
-                    model: 'qwen3.5:9b',
+                    model: 'qwen3.5:4b',
                     messages: messg,
-                    stream: true
+                    keep_alive: '30m',
+                    stream: true,
+                    options: { num_predict: 2048 },
+                    tools
                 });
                 async function* gen() {
                     let accumulatedContent = '';
                     for await (const chunk of finalRespStream) {
-                        const contentChunk = chunk.message.content || '';
-                        accumulatedContent += contentChunk;
-                        yield {
-                            message: {
-                                content: contentChunk
-                            }
-                        };
+                        const text = chunk.message.content || '';
+                        if (!text) continue;
+                        accumulatedContent += text;
+                        yield { message: { content: text } };
                     }
-                    mem.push({role: 'user', content: ollamares});
-                    mem.push({role: 'assistant',content: accumulatedContent});
-                    if (mem.length > 20) {
-                        mem.splice(0, mem.length - 20);
-                    }
+                    mem.push({ role: 'user', content: ollamares });
+                    mem.push({ role: 'assistant', content: accumulatedContent });
+                    if (mem.length > 20) mem.splice(0, mem.length - 20);
                     savemem(mem);
                 }
                 return gen();
             }
             messg.push(resp.message);
-            mem.push(resp.message);
+            // mem.push(resp.message);
+
             for (const call of toolcalls) {
                 let args = call.function.arguments || {};
                 try {
-                    args =
-                        typeof call.function.arguments === 'string'
+                    args = typeof call.function.arguments === 'string'
                             ? JSON.parse(call.function.arguments)
                             : call.function.arguments || {};
                 } catch (err) {
                     console.error('Invalid tool arguments:', err);
-
                     args = {};
                 }
                 let toolres;
@@ -334,6 +508,13 @@ export async function getOllamaResponse(ollamares) {
                         toolres = modifyFileTool(args);
                     }
                 }
+                else if (call.function.name === 'semantic_search') {
+                    if (!args || !args.query) {
+                        toolres = { success: false, error: 'Invalid arguments. "query" must be specified.' };
+                    } else {
+                        toolres = await semanticSearch(args.query, args.topK || 5);
+                    }
+                }
                 else{
                     toolres = {
                         success: false,
@@ -343,14 +524,18 @@ export async function getOllamaResponse(ollamares) {
                 const toolMsg = {
                     role: 'tool',
                     name: call.function.name,
-                    // tool_call_id: call.id || crypto.randomUUID(),
                     content: JSON.stringify(toolres)
                 };
                 messg.push(toolMsg);
                 // mem.push(toolMsg);
             }
         }
-    
+        
+
     // const messg = [{}]
     
 }   
+
+
+
+

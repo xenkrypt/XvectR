@@ -2,6 +2,8 @@
         <html>
         <head>
             <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
             <style>
                 body {
                     padding: 10px;
@@ -56,6 +58,7 @@
                     border-radius: 6px;
                     border: none;
                     color: #d4baba;
+                    background: #3f3f3f;
                     outline: 1px solid yellow;
                     /* outline-color: yellow; */
                     cursor: pointer;
@@ -69,13 +72,25 @@
                 .hljs * {
                     background: transparent !important;
                 }
+                .message pre {
+                    white-space: pre-wrap;
+                    word-break: break-word;
+                    overflow-wrap: anywhere;
+                }
 
 
 
                 ::selection {
                     background: #264f78;
 }
-                pre { background: #1e1e1e; padding: 10px; border-radius: 5px; overflow-x: auto; }
+                pre {
+                    background: #1e1e1e;
+                    padding: 10px;
+                    border-radius: 5px;
+                    overflow-x: auto;
+                    white-space: pre-wrap;
+                    word-break: break-word;
+                }
                 code { font-family: var(--vscode-editor-font-family); }
                 .input-container {
                     display: flex;
@@ -127,6 +142,7 @@
                     vscode.postMessage({ type: 'chat', text: text });
                 }
                 let div = null;
+                let accumulatedText = '';
                 // let copyb =  document.createElement('button');
                 // copyb.textContent = 'Copy Code';
                 // copyb.className = 'copy-button';
@@ -145,16 +161,21 @@
                     const chatContainer = document.getElementById('chat');
 
                     if (event.data.type === 'start') {  
+                        accumulatedText = '';
                         div = document.createElement('div');
                         div.className = 'message';
-                        // div.innerHTML = event.data.text;
+
                         chatContainer.appendChild(div);
-                        
                     } else if (event.data.type === 'render') {
                         if (div) {
-                            div.innerHTML = event.data.text;
+                            accumulatedText += event.data.text;
+                            div.textContent = accumulatedText;
                         }
                     } else if (event.data.type === 'done') {
+                        div.innerHTML = marked.parse(accumulatedText);
+                        document.querySelectorAll('pre code').forEach((block) => {
+                            hljs.highlightElement(block);
+                        }); 
                         const codeBlocks = div.querySelectorAll('pre');
                         codeBlocks.forEach(pre => {
                             if (pre.querySelector('.copy-button')) return;

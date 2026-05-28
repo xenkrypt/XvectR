@@ -11,6 +11,7 @@ import * as vscode from 'vscode';
 import { chatViewProvider } from './chatViewProvider.js'; 
 import {spawn} from 'child_process';
 import * as net from 'net';
+// import { indexWorkspace } from './indexer.js';
 
 
 let ollamaProcess = null;
@@ -58,10 +59,14 @@ async function stollama() {
 export async function activate(context) {
     await stollama();
     console.log('Congratulations, your extension "xvectr" is now active!');
+    // const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    // if (workspaceFolder) {
+    //     // indexWorkspace(workspaceFolder).catch(err => {
+    //     //     console.error('Failed to run initial workspace indexing:', err);
+    //     // });
+    // }
     const provider = new chatViewProvider(context);
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider('chatView', provider)
-    );
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider('chatView', provider));
     const disposable = vscode.commands.registerCommand('xvectr.helloWorld', () => {
         vscode.window.showInformationMessage('Hello World from XvectR!');
     });

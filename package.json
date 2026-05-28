@@ -58,6 +58,9 @@
     "markdown-it": "^14.1.1",
     "marked": "^18.0.3",
     "moment-timezone": "^0.6.2",
-    "ollama": "^0.6.3"
+    "ollama": "^0.6.3",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-java": "^0.23.5",
+    "tree-sitter-javascript": "^0.21.4"
   }
 }

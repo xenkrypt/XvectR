@@ -54,6 +54,7 @@
     "eslint": "^9.39.3"
   },
   "dependencies": {
+    "@lancedb/lancedb": "^0.30.0",
     "highlight.js": "^11.11.1",
     "markdown-it": "^14.1.1",
     "marked": "^18.0.3",

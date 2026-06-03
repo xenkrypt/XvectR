@@ -321,7 +321,7 @@ function savemem(mem) {
 
 
 
-export async function getOllamaResponse(ollamares) {
+export async function* getOllamaResponse(ollamares) {
     // const intent = await intentrec(ollamares);
     // console.log('intent:', intent);
     // const dat = fs.readFileSync('./memo.txt', 'utf-8');
@@ -453,7 +453,6 @@ export async function getOllamaResponse(ollamares) {
             console.log('RAW TOOL CALLS:',JSON.stringify(resp.message.tool_calls,null,2));
             console.log('RAW CONTENT:',resp.message.content);
             if (toolcalls.length === 0) {
-                // messg.push(resp.message);
                 const finalRespStream = await ollama.chat({
                     model: 'qwen3.5:4b',
                     messages: messg,
@@ -462,20 +461,18 @@ export async function getOllamaResponse(ollamares) {
                     options: { num_predict: 2048 },
                     tools
                 });
-                async function* gen() {
-                    let accumulatedContent = '';
-                    for await (const chunk of finalRespStream) {
-                        const text = chunk.message.content || '';
-                        if (!text) continue;
-                        accumulatedContent += text;
-                        yield { message: { content: text } };
-                    }
-                    mem.push({ role: 'user', content: ollamares });
-                    mem.push({ role: 'assistant', content: accumulatedContent });
-                    if (mem.length > 20) mem.splice(0, mem.length - 20);
-                    savemem(mem);
+                let accumulatedContent = '';
+                for await (const chunk of finalRespStream) {
+                    const text = chunk.message.content || '';
+                    if (!text) continue;
+                    accumulatedContent += text;
+                    yield { type: 'chunk', message: { content: text } };
                 }
-                return gen();
+                mem.push({ role: 'user', content: ollamares });
+                mem.push({ role: 'assistant', content: accumulatedContent });
+                if (mem.length > 20) mem.splice(0, mem.length - 20);
+                savemem(mem);
+                return;
             }
             messg.push(resp.message);
             // mem.push(resp.message);
@@ -490,8 +487,21 @@ export async function getOllamaResponse(ollamares) {
                     console.error('Invalid tool arguments:', err);
                     args = {};
                 }
+                
+                let desc = `Using tool: ${call.function.name}`;
+                if (call.function.name === 'read_files') {
+                    desc = `Reading file(s): ${(args.paths || []).join(', ')}`;
+                } else if (call.function.name === 'file_tree') {
+                    desc = `Analyzing workspace file tree`;
+                } else if (call.function.name === 'modify_file') {
+                    desc = `Modifying file: ${args.path || 'unknown'}`;
+                } else if (call.function.name === 'semantic_search') {
+                    desc = `Searching codebase for: "${args.query || ''}"`;
+                }
+                yield { type: 'tool_status', message: desc };
                 let toolres;
                 if (call.function.name === 'read_files') {
+                    
                     if (!args || !Array.isArray(args.paths)) {
                         toolres = { success: false, error: 'Invalid arguments. "paths" must be an array of file path strings. Example: {"paths": ["app.js"]}' };
                     } else {

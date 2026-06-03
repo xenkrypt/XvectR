@@ -36,14 +36,14 @@ export class chatViewProvider {
                     if (!resT) return;
                     let fr = "";
                     for await(const i of resT) {
-                        fr+=i.message.content;
-                        // const formatted = md.render(fr);
-                        this.sendMessageToWebview('render', i.message.content);
-                        // this.sendMessageToWebview("chunk",i.message.content.replace(/\n/g, ''));
-                        // this.sendMessageToWebview("chunk", "\n");
-                        // this.sendMessageToWebview(res);
+                        if (i.type === 'tool_status') {
+                            this.sendMessageToWebview('tool_status', i.message);
+                        } else {
+                            const chunkText = i.type === 'chunk' ? i.message.content : (i.message?.content || '');
+                            this.sendMessageToWebview('render', chunkText);
+                            fr += chunkText;
                         }
-                        
+                    }
                     this.sendMessageToWebview('done', '');
                     fs.writeFileSync('./memo.txt', message.text + "\n" + fr);
 

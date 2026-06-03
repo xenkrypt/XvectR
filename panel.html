@@ -142,6 +142,8 @@
                     vscode.postMessage({ type: 'chat', text: text });
                 }
                 let div = null;
+                let contentDiv = null;
+                let toolStatusDiv = null;
                 let accumulatedText = '';
                 // let copyb =  document.createElement('button');
                 // copyb.textContent = 'Copy Code';
@@ -164,19 +166,42 @@
                         accumulatedText = '';
                         div = document.createElement('div');
                         div.className = 'message';
+                        
+                        toolStatusDiv = document.createElement('div');
+                        // toolStatusDiv.style.fontStyle = 'bold';
+                        toolStatusDiv.style.color = '#ffffff';
+                        toolStatusDiv.style.marginBottom = '5px';
+                        toolStatusDiv.style.fontSize = '120%';
+                        toolStatusDiv.style.fontWeight = 'bold';
+                        toolStatusDiv.style.display = 'none';
+                        div.appendChild(toolStatusDiv);
+                        
+                        contentDiv = document.createElement('div');
+                        div.appendChild(contentDiv);
 
                         chatContainer.appendChild(div);
+                    } else if (event.data.type === 'tool_status') {
+                        if (toolStatusDiv) {
+                            toolStatusDiv.style.display = 'block';
+                            toolStatusDiv.innerText = event.data.text;
+                            chatContainer.scrollTop = chatContainer.scrollHeight;
+                        }
                     } else if (event.data.type === 'render') {
-                        if (div) {
+                        if (contentDiv) {
+                            if (toolStatusDiv) toolStatusDiv.style.display = 'none';
                             accumulatedText += event.data.text;
-                            div.textContent = accumulatedText;
+                            contentDiv.innerHTML = marked.parse(accumulatedText);
+                            contentDiv.querySelectorAll('pre code').forEach((block) => {
+                                hljs.highlightElement(block);
+                            });
                         }
                     } else if (event.data.type === 'done') {
-                        div.innerHTML = marked.parse(accumulatedText);
-                        document.querySelectorAll('pre code').forEach((block) => {
-                            hljs.highlightElement(block);
-                        }); 
-                        const codeBlocks = div.querySelectorAll('pre');
+                        if (contentDiv) {
+                            contentDiv.innerHTML = marked.parse(accumulatedText);
+                            document.querySelectorAll('pre code').forEach((block) => {
+                                hljs.highlightElement(block);
+                            }); 
+                            const codeBlocks = contentDiv.querySelectorAll('pre');
                         codeBlocks.forEach(pre => {
                             if (pre.querySelector('.copy-button')) return;
                             const copyb = document.createElement('button');
@@ -198,6 +223,7 @@
                             });
                             pre.appendChild(copyb);
                         });
+                        }
                         setGeneratingState(false);
                     } else if (event.data.type === 'user') {
                         const userdiv = document.createElement('div');

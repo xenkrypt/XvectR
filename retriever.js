@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { getEmbedding, indexWorkspace } from './indexer.js';
-import { searchSimilar } from './vectordb.js';
+// import { searchSimilar } from './vectordb.js';
+import {searchSimilar2} from './lancedb.js';   
 
 /**
  * @param {string} query 
@@ -18,8 +19,9 @@ export async function semanticSearch(query, topK = 5) {
         }
         await indexWorkspace(workspaceFolder);
         const queryEmbedding = await getEmbedding(query);
-        const matches = searchSimilar(queryEmbedding, topK, workspaceFolder);
-        const results = matches.map(match => ({
+        // const matches = searchSimilar(queryEmbedding, topK, workspaceFolder);
+        const lancedbMatches = await searchSimilar2(queryEmbedding, topK, workspaceFolder);
+        const results = lancedbMatches.map(match => ({
             filePath: match.filePath,
             type: match.type,
             name: match.name,

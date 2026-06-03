@@ -65,6 +65,8 @@ export async function activate(context) {
     //     //     console.error('Failed to run initial workspace indexing:', err);
     //     // });
     // }
+
+    
     const provider = new chatViewProvider(context);
     context.subscriptions.push(vscode.window.registerWebviewViewProvider('chatView', provider));
     const disposable = vscode.commands.registerCommand('xvectr.helloWorld', () => {
@@ -75,5 +77,5 @@ export async function activate(context) {
 }
 
 export function deactivate() { 
-
+// console.log('Deactivating extension, stopping Ollama if it was started by this extension...');
 }

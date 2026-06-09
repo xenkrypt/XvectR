@@ -1,7 +1,10 @@
 import {getOllamaResponse} from './ollama1.js';
 import fs from "fs";
 import path from "path";
-import md from "./markdown.js";
+// import md from "./markdown.js";
+import * as vscode from 'vscode';
+// import { getEmbedding } from './indexer.js';
+import { getAllFiles } from './indexer.js';
 
 
 export class chatViewProvider {
@@ -28,11 +31,59 @@ export class chatViewProvider {
         webviewView.webview.html = this.getHtml();
 
         webviewView.webview.onDidReceiveMessage(async message => {
+            if (message.type === 'mention') {
+                try {
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    if (!workspaceFolder) {
+                        return;
+                    }
+                    const files = getAllFiles(workspaceFolder);
+                    const fileList = files.map(f => path.relative(workspaceFolder, f)
+                    );
+                    webviewView.webview.postMessage({type: 'mention_suggestions',suggestions: fileList});
+                } catch (err) {
+                    console.error(err);
+                }
+                return;
+            }
             if (message.type === 'chat') {
                 this.sendMessageToWebview("user", message.text);
                 this.sendMessageToWebview("start","");
                 try{
-                    const resT = await getOllamaResponse(message.text);
+                    let promptText = message.text;
+                    const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    
+                    if (workspaceFolder) {
+                        const mentionRegex = /@([\w\-./\\]+)/g;
+                        let match;
+                        let contextAdded = false;
+                        let fileContext = "Context from mentioned files:\n\n";
+
+                        const mentions = new Set();
+                        while ((match = mentionRegex.exec(message.text)) !== null) {
+                            mentions.add(match[1]);
+                        }
+
+                        for (const file of mentions) {
+                            try {
+                                const filePath = path.resolve(workspaceFolder, file);
+                                if (filePath.startsWith(workspaceFolder) && fs.existsSync(filePath) && fs.statSync(filePath).isFile()) {
+                                    const content = fs.readFileSync(filePath, 'utf-8');
+                                    fileContext += `--- ${file} ---\n${content}\n\n`;
+                                    contextAdded = true;
+                                }
+                            } catch (err) {
+                                console.error("Error reading mentioned file:", err);
+                            }
+                        }
+
+                        if (contextAdded) {
+                            promptText = `${fileContext}\nUser Query: ${message.text}`;
+                            console.log("prompttext:", promptText);
+                        }
+                    }
+
+                    const resT = await getOllamaResponse(promptText);
                     if (!resT) return;
                     let fr = "";
                     for await(const i of resT) {

@@ -63,6 +63,17 @@
                     /* outline-color: yellow; */
                     cursor: pointer;
                 }
+                #mentionMenu {
+                    position: absolute;
+                    bottom: 55px;
+                    width: 350px;
+                    max-height: 250px;
+                    overflow-y: auto;
+                    background: #1e1e1e;
+                    border: 1px solid #555;
+                    display: none;
+                    z-index: 1000;
+                }
                 .hljs {
                     background: #1e1e1e !important;
                     color: #d4d4d4;
@@ -109,6 +120,7 @@
             <div class="input-container">
                 <input id="input" type="text" placeholder="Type a message..." ></input>
                 <button id="sendBtn" onclick="send()">Send</button>
+                <div id = "mentionMenu"></div>
             </div>
 
             <script>
@@ -116,6 +128,17 @@
                 const input = document.getElementById('input');
                 const sendBtn = document.getElementById('sendBtn'); 
                 let isGenerating = false;
+                let selectedMentions = [];
+                input.addEventListener('input',() => {
+                    const cur = input.selectionStart;
+                    const text = input.value.slice(0, cur);
+                    const mat = text.match(/@([\w\-./]*)$/);
+                    if (!mat) {
+                        document.getElementById('mentionMenu').style.display = 'none';
+                        return;
+                    }
+                    vscode.postMessage({ type: 'mention', text: mat[1] });
+                });
                 document.getElementById('input').addEventListener('keypress', function (e) {
                     if (e.key === 'Enter') {
                         e.preventDefault();
@@ -230,6 +253,31 @@
                         userdiv.className = 'message user-message';
                         userdiv.innerText = event.data.text;
                         chatContainer.appendChild(userdiv);
+                    }else if (event.data.type === 'mention_suggestions') {
+                        const menu = document.getElementById('mentionMenu');
+                        menu.innerHTML = '';
+                        event.data.suggestions.forEach(suggestion => {
+                            const item = document.createElement('div');
+                            item.textContent = suggestion;
+                            item.style.padding = '5px 10px';
+                            item.style.cursor = 'pointer';
+                            item.addEventListener('click', () => {
+                                const cur = input.selectionStart;
+                                const textBefore = input.value.slice(0, cur);
+                                const textAfter = input.value.slice(cur);
+                                const newTextBefore = textBefore.replace(/@([\w\-./]*)$/, `@${suggestion} `);
+                                input.value = newTextBefore + textAfter;
+                                input.focus();
+                                input.selectionStart = input.selectionEnd = newTextBefore.length;
+                                menu.style.display = 'none';
+                            });
+                            menu.appendChild(item);
+                        });
+                        if (event.data.suggestions.length > 0) {
+                            menu.style.display = 'block';
+                        } else {
+                            menu.style.display = 'none';
+                        }
                     }
                     chatContainer.scrollTop = chatContainer.scrollHeight;
             

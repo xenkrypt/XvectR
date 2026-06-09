@@ -10,6 +10,7 @@ import { fileTreeTool } from './tools/file_tree.js';
 import { modifyFileTool } from './tools/modify_file.js';
 import { semanticSearch } from './retriever.js';
 
+import { runCommandTool } from './runner.js';
 import zlib from 'zlib';    
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -421,6 +422,23 @@ export async function* getOllamaResponse(ollamares) {
                             required: ['query']
                         }
                     }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'run_command',
+                        description: 'Execute a CLI command in the terminal and get the output. Useful for running tests, npm scripts, or checking git status.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                command: {
+                                    type: 'string',
+                                    description: 'The exact terminal command to run.'
+                                }
+                            },
+                            required: ['command']
+                        }
+                    }
                 }
             ];
         let tooliter = 0;
@@ -497,7 +515,11 @@ export async function* getOllamaResponse(ollamares) {
                     desc = `Modifying file: ${args.path || 'unknown'}`;
                 } else if (call.function.name === 'semantic_search') {
                     desc = `Searching codebase for: "${args.query || ''}"`;
+                } else if (call.function.name === 'run_command') {
+                    desc = `Running command: "${args.command || ''}"`;
                 }
+
+
                 yield { type: 'tool_status', message: desc };
                 let toolres;
                 if (call.function.name === 'read_files') {
@@ -525,11 +547,12 @@ export async function* getOllamaResponse(ollamares) {
                         toolres = await semanticSearch(args.query, args.topK || 5);
                     }
                 }
-                else{
-                    toolres = {
-                        success: false,
-                        error: 'Unknown tool'
-                    };
+                else if (call.function.name === 'run_command') {
+                    if (!args || !args.command) {
+                        toolres = { success: false, error: 'Invalid arguments. "command" must be specified.' };
+                    } else {
+                        toolres = await runCommandTool(args);
+                    }
                 }
                 const toolMsg = {
                     role: 'tool',

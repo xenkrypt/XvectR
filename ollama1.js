@@ -11,6 +11,7 @@ import { modifyFileTool } from './tools/modify_file.js';
 import { semanticSearch } from './retriever.js';
 
 import { runCommandTool } from './runner.js';
+import { sandrTool } from './tools/sandr.js';
 import zlib from 'zlib';    
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -49,13 +50,17 @@ AVAILABLE TOOLS:
 
 - Read one or multiple files from the workspace.
 
-3. modify_file
+3. search_and_replace
 
-- Modify or write the content of a file in the workspace.
+- Search for text in a file and replace it with new content.
 
 4. semantic_search
 
 - Perform semantic search over the codebase to find relevant code snippets using natural language queries.
+
+5. run_command
+
+- Execute terminal commands.
 
 ---
 
@@ -170,7 +175,7 @@ These REQUIRE repository inspection.
 - inspecting classes/functions
 - validating assumptions
 
-6. Use modify_file only after sufficient investigation.
+6. Use search_and_replace only after sufficient investigation.
 
 7. You may call tools multiple times.
 
@@ -194,9 +199,11 @@ These REQUIRE repository inspection.
 15. Arrays must never be stringified.
 
 Correct:
+
 {"paths":["src/app.py"]}
 
 Incorrect:
+
 {"paths":"[src/app.py]"}
 
 16. After tool usage:
@@ -212,6 +219,10 @@ Incorrect:
 - avoid repeatedly reading the same file unless needed
 
 ---
+When asked to modify code:
+- ALWAYS follow through with search_and_replace after reading.
+- Reading a file is NOT completion of a modification task.
+- Do not summarize findings and stop — make the change.
 
 # RESPONSE POLICY
 
@@ -242,7 +253,7 @@ Before modifying code:
 4. Avoid unrelated edits.
 5. Make minimal, targeted changes unless broader refactoring is requested.
 
-Never blindly overwrite files without understanding them first.
+Never perform search-and-replace operations without understanding the surrounding code first.
 
 ---
 
@@ -256,21 +267,28 @@ Never blindly overwrite files without understanding them first.
 - Use tools only when repository state matters.
 - Avoid unnecessary tool calls for generic programming discussions.
 
+---
 
-important 
+IMPORTANT
+
 Only output natural language unless making a tool call.
+
 NEVER reveal internal reasoning.
+
 NEVER narrate your investigation process.
+
 NEVER explain what tools you are ABOUT to use.
+
 ONLY provide:
+
 - tool calls
-- or final concise answers.
+- or final concise answers
 
 Do not narrate actions.
+
 Do not explain intermediate steps unless explicitly asked.
 
 Give short answers when using tools, and detailed explanations when not using tools.
-
 `;
 
 function stripThinking(text = '') {
@@ -381,27 +399,27 @@ export async function* getOllamaResponse(ollamares) {
                         }
                     }
                 },
-                {
-                    type: 'function',
-                    function: {
-                        name: 'modify_file',
-                        description: 'Modify or write the content of a file in the workspace.',
-                        parameters: {
-                            type: 'object',
-                            properties: {
-                                path: {
-                                    type: 'string',
-                                    description: 'The file path relative to the workspace root.'
-                                },
-                                content: {
-                                    type: 'string',
-                                    description: 'The complete new content to write to the file.'
-                                }
-                            },
-                            required: ['path', 'content']
-                        }
-                    }
-                },
+                // {
+                //     type: 'function',
+                //     function: {
+                //         name: 'modify_file',
+                //         description: 'Modify or write the content of a file in the workspace.',
+                //         parameters: {
+                //             type: 'object',
+                //             properties: {
+                //                 path: {
+                //                     type: 'string',
+                //                     description: 'The file path relative to the workspace root.'
+                //                 },
+                //                 content: {
+                //                     type: 'string',
+                //                     description: 'The complete new content to write to the file.'
+                //                 }
+                //             },
+                //             required: ['path', 'content']
+                //         }
+                //     }
+                // },
                 {
                     type: 'function',
                     function: {
@@ -440,6 +458,27 @@ export async function* getOllamaResponse(ollamares) {
                         }
                     }
                 }
+                ,{
+                    type: 'function',
+                    function: {
+                        name: 'search_and_replace',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                filepath: {
+                                    type: 'string'
+                                },
+                                search: {
+                                    type: 'string'
+                                },
+                                replace: {
+                                    type: 'string'
+                                }
+                            },
+                            required: ['filepath', 'search', 'replace']
+                        }
+                    }
+                }
             ];
         let tooliter = 0;
         
@@ -447,7 +486,7 @@ export async function* getOllamaResponse(ollamares) {
         while (true) {
             tooliter++;
             console.log(`Tool iteration: ${tooliter}`);
-            if(tooliter > 10){
+            if(tooliter > 30){
                 throw new Error('Too many tool iterations, possible infinite loop');
 
             }
@@ -470,24 +509,20 @@ export async function* getOllamaResponse(ollamares) {
             let toolcalls = resp.message.tool_calls || [];
             console.log('RAW TOOL CALLS:',JSON.stringify(resp.message.tool_calls,null,2));
             console.log('RAW CONTENT:',resp.message.content);
+
+            if (resp.message.content && toolcalls.length > 0) {
+                yield { type: 'chunk', message: { content: resp.message.content + '\n\n' } };
+            }
+
             if (toolcalls.length === 0) {
-                const finalRespStream = await ollama.chat({
-                    model: 'qwen3.5:4b',
-                    messages: messg,
-                    keep_alive: '30m',
-                    stream: true,
-                    options: { num_predict: 2048 },
-                    tools
-                });
-                let accumulatedContent = '';
-                for await (const chunk of finalRespStream) {
-                    const text = chunk.message.content || '';
-                    if (!text) continue;
-                    accumulatedContent += text;
-                    yield { type: 'chunk', message: { content: text } };
+                const finalContent = resp.message.content || '';
+                const chunkSize = 6;
+                for (let i = 0; i < finalContent.length; i += chunkSize) {
+                    yield { type: 'chunk', message: { content: finalContent.slice(i, i + chunkSize) } };
+                    await new Promise(r => setTimeout(r, 8));
                 }
                 mem.push({ role: 'user', content: ollamares });
-                mem.push({ role: 'assistant', content: accumulatedContent });
+                mem.push({ role: 'assistant', content: finalContent });
                 if (mem.length > 20) mem.splice(0, mem.length - 20);
                 savemem(mem);
                 return;
@@ -511,12 +546,15 @@ export async function* getOllamaResponse(ollamares) {
                     desc = `Reading file(s): ${(args.paths || []).join(', ')}`;
                 } else if (call.function.name === 'file_tree') {
                     desc = `Analyzing workspace file tree`;
-                } else if (call.function.name === 'modify_file') {
-                    desc = `Modifying file: ${args.path || 'unknown'}`;
+                // } else if (call.function.name === 'modify_file') {
+                //     desc = `Modifying file: ${args.path || 'unknown'}`;
                 } else if (call.function.name === 'semantic_search') {
                     desc = `Searching codebase for: "${args.query || ''}"`;
                 } else if (call.function.name === 'run_command') {
                     desc = `Running command: "${args.command || ''}"`;
+                }
+                else if (call.function.name === 'search_and_replace') {
+                    desc = `Replacing text in file: ${args.filepath || 'unknown'}`;
                 }
 
 
@@ -533,13 +571,13 @@ export async function* getOllamaResponse(ollamares) {
                 else if (call.function.name === 'file_tree') {
                     toolres = fileTreeTool();
                 }
-                else if (call.function.name === 'modify_file') {
-                    if (!args || !args.path) {
-                        toolres = { success: false, error: 'Invalid arguments. "path" must be specified.' };
-                    } else {
-                        toolres = modifyFileTool(args);
-                    }
-                }
+                // else if (call.function.name === 'modify_file') {
+                //     if (!args || !args.path) {
+                //         toolres = { success: false, error: 'Invalid arguments. "path" must be specified.' };
+                //     } else {
+                //         toolres = modifyFileTool(args);
+                //     }
+                // }
                 else if (call.function.name === 'semantic_search') {
                     if (!args || !args.query) {
                         toolres = { success: false, error: 'Invalid arguments. "query" must be specified.' };
@@ -552,6 +590,13 @@ export async function* getOllamaResponse(ollamares) {
                         toolres = { success: false, error: 'Invalid arguments. "command" must be specified.' };
                     } else {
                         toolres = await runCommandTool(args);
+                    }
+                }
+                else if (call.function.name === 'search_and_replace') {
+                    if (!args || !args.filepath || args.search === undefined || args.replace === undefined) {
+                        toolres = { success: false, error: 'Invalid arguments. "filepath", "search", and "replace" must be specified.' };
+                    } else {
+                        toolres = await sandrTool(args);
                     }
                 }
                 const toolMsg = {

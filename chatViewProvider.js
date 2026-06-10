@@ -38,8 +38,7 @@ export class chatViewProvider {
                         return;
                     }
                     const files = getAllFiles(workspaceFolder);
-                    const fileList = files.map(f => path.relative(workspaceFolder, f)
-                    );
+                    const fileList = files.map(f => path.relative(workspaceFolder, f));
                     webviewView.webview.postMessage({type: 'mention_suggestions',suggestions: fileList});
                 } catch (err) {
                     console.error(err);

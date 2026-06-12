@@ -4,7 +4,7 @@ import * as vscode from 'vscode';
 
 
 
-function findFile(workspaceF, filename) {
+export function findFile(workspaceF, filename) {
     const directPath = path.join(workspaceF, filename);
     if (fs.existsSync(directPath)) {
         return directPath;

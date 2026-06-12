@@ -7,12 +7,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { readFilesTool } from './tools/read_files.js';
 import { fileTreeTool } from './tools/file_tree.js';
-import { modifyFileTool } from './tools/modify_file.js';
+// import { modifyFileTool } from './tools/modify_file.js';
 import { semanticSearch } from './retriever.js';
 
 import { runCommandTool } from './runner.js';
 import { sandrTool } from './tools/sandr.js';
-import zlib from 'zlib';    
+import { imgRendTool } from './tools/imgrend.js';
+// import zlib from 'zlib';    
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -478,6 +479,27 @@ export async function* getOllamaResponse(ollamares) {
                             required: ['filepath', 'search', 'replace']
                         }
                     }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'analyze_image',
+                        description: 'Analyze an image from the workspace using the qwen2.5vl:3b vision model.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                imagePath: {
+                                    type: 'string',
+                                    description: 'The file path of the image relative to the workspace.'
+                                },
+                                prompt: {
+                                    type: 'string',
+                                    description: 'Optional instruction on what to analyze in the image.'
+                                }
+                            },
+                            required: ['imagePath']
+                        }
+                    }
                 }
             ];
         let tooliter = 0;
@@ -552,9 +574,10 @@ export async function* getOllamaResponse(ollamares) {
                     desc = `Searching codebase for: "${args.query || ''}"`;
                 } else if (call.function.name === 'run_command') {
                     desc = `Running command: "${args.command || ''}"`;
-                }
-                else if (call.function.name === 'search_and_replace') {
+                }else if (call.function.name === 'search_and_replace') {
                     desc = `Replacing text in file: ${args.filepath || 'unknown'}`;
+                } else if (call.function.name === 'analyze_image') {
+                    desc = `Analyzing image: ${args.imagePath || 'unknown'}`;
                 }
 
 
@@ -597,6 +620,12 @@ export async function* getOllamaResponse(ollamares) {
                         toolres = { success: false, error: 'Invalid arguments. "filepath", "search", and "replace" must be specified.' };
                     } else {
                         toolres = await sandrTool(args);
+                    }
+                } else if (call.function.name === 'analyze_image') {
+                    if (!args || !args.imagePath) {
+                        toolres = { success: false, error: 'Invalid arguments. "imagePath" must be specified.' };
+                    } else {
+                        toolres = await imgRendTool(args);
                     }
                 }
                 const toolMsg = {

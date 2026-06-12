@@ -53,6 +53,16 @@ export class chatViewProvider {
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
                     
                     if (workspaceFolder) {
+                        if (message.image) {
+                            const base64Data = message.image.replace(/^data:image\/\w+;base64,/, "");
+                            const imageBuffer = Buffer.from(base64Data, 'base64');
+                            const imageFileName = 'pasted_image.png';
+                            const imagePath = path.join(workspaceFolder, imageFileName);
+                            
+                            fs.writeFileSync(imagePath, imageBuffer);
+                            promptText += `\n\n[System Note: The user has uploaded an image which is saved at '${imageFileName}'. You MUST use the analyze_image tool to analyze it first before fulfilling the rest of the user's request.]`;
+                        }
+
                         const mentionRegex = /@([\w\-./\\]+)/g;
                         let match;
                         let contextAdded = false;

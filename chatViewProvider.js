@@ -1,10 +1,10 @@
 import {getOllamaResponse} from './ollama1.js';
 import fs from "fs";
 import path from "path";
-// import md from "./markdown.js";
 import * as vscode from 'vscode';
-// import { getEmbedding } from './indexer.js';
 import { getAllFiles } from './indexer.js';
+import { scanAndRedact } from './tools/security_shield.js';
+import { getSessionList, loadSessionMessages, renameSession, isSessionEmpty } from './tools/project_memory.js';
 
 
 export class chatViewProvider {
@@ -31,6 +31,24 @@ export class chatViewProvider {
         webviewView.webview.html = this.getHtml();
 
         webviewView.webview.onDidReceiveMessage(async message => {
+            if (message.type === 'init') {
+                try {
+                    const sessions = getSessionList() || [];
+                    this.sendMessageToWebview("session_list", sessions);
+                } catch (err) {
+                    console.error(err);
+                }
+                return;
+            }
+            if (message.type === 'load_session') {
+                try {
+                    const messages = loadSessionMessages(message.sessionId) || [];
+                    this.sendMessageToWebview("load_history", messages);
+                } catch (err) {
+                    console.error(err);
+                }
+                return;
+            }
             if (message.type === 'mention') {
                 try {
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -51,14 +69,22 @@ export class chatViewProvider {
                 try{
                     let promptText = message.text;
                     const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-                    
+                    // Use the specific sessionId sent from the webview
+                    const sessionId = message.sessionId || 'default';
+
+                    if (isSessionEmpty(sessionId)) {
+                        let title = promptText.substring(0, 30);
+                        if (promptText.length > 30) title += '...';
+                        renameSession(sessionId, title);
+                        this.sendMessageToWebview("session_list", getSessionList() || []);
+                    }
+
                     if (workspaceFolder) {
                         if (message.image) {
                             const base64Data = message.image.replace(/^data:image\/\w+;base64,/, "");
                             const imageBuffer = Buffer.from(base64Data, 'base64');
                             const imageFileName = 'pasted_image.png';
                             const imagePath = path.join(workspaceFolder, imageFileName);
-                            
                             fs.writeFileSync(imagePath, imageBuffer);
                             promptText += `\n\n[System Note: The user has uploaded an image which is saved at '${imageFileName}'. You MUST use the analyze_image tool to analyze it first before fulfilling the rest of the user's request.]`;
                         }
@@ -92,7 +118,15 @@ export class chatViewProvider {
                         }
                     }
 
-                    const resT = await getOllamaResponse(promptText);
+                    // ── Security Shield: scan & redact before sending to AI ──
+                    const shieldResult = scanAndRedact(promptText);
+                    if (shieldResult.hadSecrets) {
+                        console.warn('[SecurityShield] Secrets detected and redacted:', shieldResult.findings);
+                        this.sendMessageToWebview('tool_status', `🛡️ Security Shield: Redacted ${shieldResult.findings.length} secret(s) before processing.`);
+                        promptText = shieldResult.redacted;
+                    }
+
+                    const resT = await getOllamaResponse(promptText, sessionId);
                     if (!resT) return;
                     let fr = "";
                     for await(const i of resT) {

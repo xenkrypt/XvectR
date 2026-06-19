@@ -220,6 +220,12 @@
         </head>
         <body>
             <!-- <h3 id = "chatTitle">XvectR Chat</h3> -->
+            <div id="header" style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 10px;">
+                <select id="sessionSelect" onchange="switchSession(this.value)" style="flex: 1; margin-right: 10px; background: #151515; color: #cbcbcb; border: 1px solid #00ff99; border-radius: 5px; padding: 5px;">
+                    <option value="default">Default Session</option>
+                </select>
+                <button onclick="newSession()" style="background: #151515; color: #00ff99; border: 1px solid #00ff99; border-radius: 5px; padding: 5px; cursor: pointer; white-space: nowrap;">New Chat</button>
+            </div>
             <div id="chat"></div>
 
             <div id="imagePreviewContainer"></div>
@@ -236,7 +242,28 @@
                 let isGenerating = false;
                 let selectedMentions = [];
                 let pastedImageBase64 = null;
-                
+                let currentSessionId = 'default';
+
+                function newSession() {
+                    currentSessionId = 'session_' + Date.now();
+                    document.getElementById('chat').innerHTML = '';
+                    const select = document.getElementById('sessionSelect');
+                    const opt = document.createElement('option');
+                    opt.value = currentSessionId;
+                    opt.textContent = 'New Chat';
+                    select.appendChild(opt);
+                    select.value = currentSessionId;
+                }
+
+                function switchSession(sessionId) {
+                    currentSessionId = sessionId;
+                    document.getElementById('chat').innerHTML = '';
+                    vscode.postMessage({ type: 'load_session', sessionId: sessionId });
+                }
+
+                // Initial fetch
+                vscode.postMessage({ type: 'init' });
+
                 function clearImage() {
                     pastedImageBase64 = null;
                     const previewDiv = document.getElementById('imagePreviewContainer');
@@ -327,7 +354,7 @@
                     input.value = '';
                     input.style.height = '44px';
                     setGeneratingState(true);
-                    vscode.postMessage({ type: 'chat', text: text, image: pastedImageBase64 });
+                    vscode.postMessage({ type: 'chat', text: text, image: pastedImageBase64, sessionId: currentSessionId });
                     clearImage();
                 }
                 let div = null;
@@ -449,6 +476,76 @@
                         } else {
                             menu.style.display = 'none';
                         }
+                    } else if (event.data.type === 'error') {
+                        const errDiv = document.createElement('div');
+                        errDiv.className = 'message';
+                        errDiv.innerHTML = `<div style="color: #ff4444; font-weight: bold;">${event.data.text}</div>`;
+                        chatContainer.appendChild(errDiv);
+                        setGeneratingState(false);
+                        document.getElementById('input').style.border = '2px solid #ff4444';
+                    } else if (event.data.type === 'session_list') {
+                        const select = document.getElementById('sessionSelect');
+                        select.innerHTML = '';
+                        const sessions = event.data.text;
+                        if (sessions.length === 0) {
+                            const opt = document.createElement('option');
+                            opt.value = 'default';
+                            opt.textContent = 'Default Session';
+                            select.appendChild(opt);
+                        } else {
+                            sessions.sort((a, b) => new Date(b.updatedAt || b.createdAt) - new Date(a.updatedAt || a.createdAt));
+                            sessions.forEach(s => {
+                                const opt = document.createElement('option');
+                                opt.value = s.id;
+                                opt.textContent = new Date(s.updatedAt || s.createdAt).toLocaleString() + ` (${s.messageCount} msgs)`;
+                                select.appendChild(opt);
+                            });
+                            currentSessionId = sessions[0].id;
+                            select.value = currentSessionId;
+                            vscode.postMessage({ type: 'load_session', sessionId: currentSessionId });
+                        }
+                    } else if (event.data.type === 'load_history') {
+                        const messages = event.data.text;
+                        chatContainer.innerHTML = '';
+                        messages.forEach(m => {
+                            if (m.role === 'user') {
+                                const userdiv = document.createElement('div');
+                                userdiv.className = 'message user-message';
+                                userdiv.innerText = m.content;
+                                chatContainer.appendChild(userdiv);
+                            } else if (m.role === 'assistant') {
+                                const asdiv = document.createElement('div');
+                                asdiv.className = 'message';
+                                asdiv.innerHTML = marked.parse(m.content || '');
+                                asdiv.querySelectorAll('pre code').forEach((block) => hljs.highlightElement(block));
+                                
+                                const codeBlocks = asdiv.querySelectorAll('pre');
+                                codeBlocks.forEach(pre => {
+                                    if (pre.querySelector('.copy-button')) return;
+                                    const copyb = document.createElement('button');
+                                    copyb.textContent = 'Copy Code';
+                                    copyb.className = 'copy-button';
+                                    pre.style.position = 'relative';
+                                    copyb.addEventListener('click', async () => {
+                                        try {
+                                            const code = pre.querySelector('code');
+                                            if (!code) return;
+                                            await navigator.clipboard.writeText(code.innerText);
+                                            copyb.textContent = 'Copied!';
+                                            setTimeout(() => {
+                                                copyb.textContent = 'Copy Code';
+                                            }, 2000);
+                                        } catch (err) {
+                                            console.error('Failed to copy text:', err);
+                                        }
+                                    });
+                                    pre.appendChild(copyb);
+                                });
+
+                                chatContainer.appendChild(asdiv);
+                            }
+                        });
+                        chatContainer.scrollTop = chatContainer.scrollHeight;
                     }
                     chatContainer.scrollTop = chatContainer.scrollHeight;
             

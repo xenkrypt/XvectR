@@ -1,19 +1,18 @@
 import ollama from 'ollama';
-// import { webSearch } from './intents/web_search.js';
-// import {getdateTime} from './intents/date_time.js';
 import fs from 'fs';
 import path from 'path';
-// import * as vscode from 'vscode';
 import { fileURLToPath } from 'url';
 import { readFilesTool } from './tools/read_files.js';
 import { fileTreeTool } from './tools/file_tree.js';
-// import { modifyFileTool } from './tools/modify_file.js';
 import { semanticSearch } from './retriever.js';
-
 import { runCommandTool } from './runner.js';
 import { sandrTool } from './tools/sandr.js';
 import { imgRendTool } from './tools/imgrend.js';
-// import zlib from 'zlib';    
+import { impactRadiusTool } from './tools/impact_radius.js';
+import { astRefactorTool } from './tools/ast_refactor.js';
+import { gitAgentTool } from './tools/git_agent.js';
+import { projectMemoryTool, loadSessionMessages, saveSessionMessages } from './tools/project_memory.js';
+import { routeModel } from './tools/model_router.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -43,25 +42,21 @@ You have access to tools.
 
 AVAILABLE TOOLS:
 
-1. file_tree
+1. file_tree — Inspect the project structure.
+2. read_files — Read one or multiple files from the workspace.
+3. search_and_replace — Search for text in a file and replace it with new content.
+4. semantic_search — Perform semantic search over the codebase using vector embeddings.
+5. run_command — Execute terminal commands.
+6. analyze_image — Analyze a pasted image using a local vision model.
+7. impact_radius — Predict all files, modules, tests, and APIs affected by changing a symbol.
+8. ast_refactor — Safe, syntax-aware code transformations: rename symbols, update/add/remove imports, rename files.
+9. git_agent — Create branches, commit changes, generate PR summaries, get git status/diff/log.
+10. project_memory — Save and load persistent notes, decisions, and session history for this workspace.
 
-- Inspect the project structure.
-
-2. read_files
-
-- Read one or multiple files from the workspace.
-
-3. search_and_replace
-
-- Search for text in a file and replace it with new content.
-
-4. semantic_search
-
-- Perform semantic search over the codebase to find relevant code snippets using natural language queries.
-
-5. run_command
-
-- Execute terminal commands.
+When to use impact_radius: before any rename or refactor to understand risk.
+When to use ast_refactor: for structural code changes that must be safe and complete.
+When to use git_agent: for any git workflow task.
+When to use project_memory: to recall past decisions or save important context.
 
 ---
 
@@ -300,40 +295,29 @@ function stripThinking(text = '') {
         .trim();
 }
 
-function loadmem() {
+// Memory is now managed by project_memory.js (persistent, workspace-scoped).
+// Legacy mem.json fallback kept for safety.
+function loadmem(sessionId) {
     try {
-        const memPath = path.join(__dirname, 'mem.json');
-        if (!fs.existsSync(memPath)) {
-            fs.writeFileSync(memPath, '[]', 'utf-8');
-            return [];
-        }
-        const memData = fs.readFileSync(memPath, 'utf-8');
-        if (!memData.trim()) {
-            return [];
-        }
-        return JSON.parse(memData);
-    } catch(err) {
-        console.error('Error loading memory:', err);
-        const memPath = path.join(__dirname, 'mem.json');
-            fs.writeFileSync(
-                memPath,
-                '[]',
-                'utf-8'
-            );
-            return [];
-    }}
+        return loadSessionMessages(sessionId);
+    } catch (_) {
+        try {
+            const memPath = path.join(__dirname, 'mem.json');
+            if (!fs.existsSync(memPath)) return [];
+            const memData = fs.readFileSync(memPath, 'utf-8');
+            return memData.trim() ? JSON.parse(memData) : [];
+        } catch (_2) { return []; }
+    }
+}
 
-function savemem(mem) {
+function savemem(mem, sessionId) {
     try {
-        const memPath = path.join(__dirname, 'mem.json');
-        fs.writeFileSync(
-            memPath,
-            JSON.stringify(mem, null, 2),
-            'utf-8'
-        );
-        console.log('Memory saved:', memPath);
-    } catch(err) {
-        console.error('Error saving memory:', err);
+        saveSessionMessages(sessionId, mem);
+    } catch (_) {
+        try {
+            const memPath = path.join(__dirname, 'mem.json');
+            fs.writeFileSync(memPath, JSON.stringify(mem, null, 2), 'utf-8');
+        } catch (_2) {}
     }
 }
 
@@ -341,13 +325,12 @@ function savemem(mem) {
 
 
 
-export async function* getOllamaResponse(ollamares) {
-    // const intent = await intentrec(ollamares);
-    // console.log('intent:', intent);
-    // const dat = fs.readFileSync('./memo.txt', 'utf-8');
-    
-    // let mem = loadmem();
-    const mem = loadmem();
+export async function* getOllamaResponse(ollamares, sessionId = 'default') {
+    // Dynamic model routing: pick the best model for this prompt
+    const { model: selectedModel, taskType, reason: routeReason } = routeModel(ollamares);
+    console.log(`[ModelRouter] Task: ${taskType} → Model: ${selectedModel} | ${routeReason}`);
+
+    const mem = loadmem(sessionId);
     const messg = [
         {
             role: 'system',
@@ -484,20 +467,87 @@ export async function* getOllamaResponse(ollamares) {
                     type: 'function',
                     function: {
                         name: 'analyze_image',
-                        description: 'Analyze an image from the workspace using the qwen2.5vl:3b vision model.',
+                        description: 'Analyze an image from the workspace using a local vision model.',
                         parameters: {
                             type: 'object',
                             properties: {
-                                imagePath: {
-                                    type: 'string',
-                                    description: 'The file path of the image relative to the workspace.'
-                                },
-                                prompt: {
-                                    type: 'string',
-                                    description: 'Optional instruction on what to analyze in the image.'
-                                }
+                                imagePath: { type: 'string', description: 'The file path of the image relative to the workspace.' },
+                                prompt: { type: 'string', description: 'Optional instruction on what to analyze in the image.' }
                             },
                             required: ['imagePath']
+                        }
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'impact_radius',
+                        description: 'Analyze how many files, tests, and imports will be affected by changing a symbol/function/class. Use this BEFORE any refactor to assess risk.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                symbol: { type: 'string', description: 'The function, class, or variable name to analyze.' },
+                                filePath: { type: 'string', description: 'Optional: limit search to a specific file.' }
+                            },
+                            required: ['symbol']
+                        }
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'ast_refactor',
+                        description: 'Perform safe, syntax-aware code transformations. Operations: rename_symbol, update_import, add_import, remove_import, wrap_function, extract_variable, rename_file.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                operation: { type: 'string', description: 'The operation to perform.' },
+                                filePath: { type: 'string', description: 'Target file path relative to workspace.' },
+                                oldName: { type: 'string', description: 'Old symbol/import name for rename operations.' },
+                                newName: { type: 'string', description: 'New symbol/import name for rename operations.' },
+                                oldImport: { type: 'string', description: 'Old import string for update_import.' },
+                                newImport: { type: 'string', description: 'New import string for update_import.' },
+                                importStatement: { type: 'string', description: 'Full import line for add_import/remove_import.' },
+                                functionName: { type: 'string', description: 'Function to wrap for wrap_function.' },
+                                wrapperName: { type: 'string', description: 'Wrapper function name for wrap_function.' },
+                                expression: { type: 'string', description: 'Expression to extract for extract_variable.' },
+                                variableName: { type: 'string', description: 'New variable name for extract_variable.' }
+                            },
+                            required: ['operation']
+                        }
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'git_agent',
+                        description: 'Perform git workflow operations: status, diff, create_branch, commit, pr_summary, log.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                action: { type: 'string', description: 'Git action: status | diff | create_branch | commit | pr_summary | log' },
+                                branchName: { type: 'string', description: 'Branch name for create_branch action.' },
+                                message: { type: 'string', description: 'Commit message for commit action.' },
+                                numCommits: { type: 'number', description: 'Number of commits for log action.' }
+                            },
+                            required: ['action']
+                        }
+                    }
+                },
+                {
+                    type: 'function',
+                    function: {
+                        name: 'project_memory',
+                        description: 'Save or load persistent notes, architectural decisions, and session history specific to this workspace.',
+                        parameters: {
+                            type: 'object',
+                            properties: {
+                                action: { type: 'string', description: 'Action: load | save | list | delete | save_note' },
+                                sessionId: { type: 'string', description: 'Session identifier (default: "default").' },
+                                note: { type: 'string', description: 'A note or decision to persist for save_note action.' },
+                                metadata: { type: 'object', description: 'Key-value metadata to attach to the session.' }
+                            },
+                            required: ['action']
                         }
                     }
                 }
@@ -512,44 +562,43 @@ export async function* getOllamaResponse(ollamares) {
                 throw new Error('Too many tool iterations, possible infinite loop');
 
             }
-            const resp = await ollama.chat({
-                model: 'qwen3.5:4b',
+            const respStream = await ollama.chat({
+                model: selectedModel,
                 messages: messg,
                 tools,
                 keep_alive: '30m',
-                stream: false
+                stream: true
             });
-            const thinkingFallback = resp.message.thinking || '';
-            delete resp.message.thinking;
-            resp.message.content = stripThinking(resp.message.content || '');
-            if (!resp.message.tool_calls && !resp.message.content) {
-                resp.message.content = thinkingFallback;
+
+            let finalContent = '';
+            let toolcalls = [];
+            let fullMessage = { role: 'assistant', content: '' };
+
+            for await (const chunk of respStream) {
+                if (chunk.message.tool_calls) {
+                    toolcalls.push(...chunk.message.tool_calls);
+                }
+                if (chunk.message.content) {
+                    finalContent += chunk.message.content;
+                    yield { type: 'chunk', message: { content: chunk.message.content } };
+                }
             }
 
-            console.log('model response: ', JSON.stringify(resp,null,2));
-            // const toolcalls = resp.message.tool_calls || [];
-            let toolcalls = resp.message.tool_calls || [];
-            console.log('RAW TOOL CALLS:',JSON.stringify(resp.message.tool_calls,null,2));
-            console.log('RAW CONTENT:',resp.message.content);
+            fullMessage.content = finalContent;
+            if (toolcalls.length > 0) fullMessage.tool_calls = toolcalls;
 
-            if (resp.message.content && toolcalls.length > 0) {
-                yield { type: 'chunk', message: { content: resp.message.content + '\n\n' } };
-            }
+            console.log('model response content length:', finalContent.length, 'tool_calls:', toolcalls.length);
 
             if (toolcalls.length === 0) {
-                const finalContent = resp.message.content || '';
-                const chunkSize = 6;
-                for (let i = 0; i < finalContent.length; i += chunkSize) {
-                    yield { type: 'chunk', message: { content: finalContent.slice(i, i + chunkSize) } };
-                    await new Promise(r => setTimeout(r, 8));
-                }
                 mem.push({ role: 'user', content: ollamares });
                 mem.push({ role: 'assistant', content: finalContent });
-                if (mem.length > 20) mem.splice(0, mem.length - 20);
-                savemem(mem);
+                if (mem.length > 40) mem.splice(0, mem.length - 40);
+                savemem(mem, sessionId);
                 return;
             }
-            messg.push(resp.message);
+            
+            // Add the assistant's message back to the conversation before tool results
+            messg.push(fullMessage);
             // mem.push(resp.message);
 
             for (const call of toolcalls) {
@@ -574,10 +623,18 @@ export async function* getOllamaResponse(ollamares) {
                     desc = `Searching codebase for: "${args.query || ''}"`;
                 } else if (call.function.name === 'run_command') {
                     desc = `Running command: "${args.command || ''}"`;
-                }else if (call.function.name === 'search_and_replace') {
+                } else if (call.function.name === 'search_and_replace') {
                     desc = `Replacing text in file: ${args.filepath || 'unknown'}`;
                 } else if (call.function.name === 'analyze_image') {
                     desc = `Analyzing image: ${args.imagePath || 'unknown'}`;
+                } else if (call.function.name === 'impact_radius') {
+                    desc = `Calculating impact radius for: "${args.symbol || 'unknown'}"`;
+                } else if (call.function.name === 'ast_refactor') {
+                    desc = `AST Refactor [${args.operation || 'unknown'}]: ${args.oldName || args.filePath || ''}`;
+                } else if (call.function.name === 'git_agent') {
+                    desc = `Git: ${args.action || 'unknown'}${args.branchName ? ` → ${args.branchName}` : ''}${args.message ? ` "${args.message}"` : ''}`;
+                } else if (call.function.name === 'project_memory') {
+                    desc = `Project Memory [${args.action || 'unknown'}]${args.sessionId ? `: ${args.sessionId}` : ''}`;
                 }
 
 
@@ -626,6 +683,30 @@ export async function* getOllamaResponse(ollamares) {
                         toolres = { success: false, error: 'Invalid arguments. "imagePath" must be specified.' };
                     } else {
                         toolres = await imgRendTool(args);
+                    }
+                } else if (call.function.name === 'impact_radius') {
+                    if (!args || !args.symbol) {
+                        toolres = { success: false, error: '"symbol" is required for impact_radius.' };
+                    } else {
+                        toolres = impactRadiusTool(args);
+                    }
+                } else if (call.function.name === 'ast_refactor') {
+                    if (!args || !args.operation) {
+                        toolres = { success: false, error: '"operation" is required for ast_refactor.' };
+                    } else {
+                        toolres = astRefactorTool(args);
+                    }
+                } else if (call.function.name === 'git_agent') {
+                    if (!args || !args.action) {
+                        toolres = { success: false, error: '"action" is required for git_agent.' };
+                    } else {
+                        toolres = await gitAgentTool(args);
+                    }
+                } else if (call.function.name === 'project_memory') {
+                    if (!args || !args.action) {
+                        toolres = { success: false, error: '"action" is required for project_memory.' };
+                    } else {
+                        toolres = projectMemoryTool(args);
                     }
                 }
                 const toolMsg = {
